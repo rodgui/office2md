@@ -46,8 +46,21 @@ class PptxConverter(BaseConverter):
             for shape in slide.shapes:
                 if hasattr(shape, "text") and shape.text.strip():
                     text = shape.text.strip()
-                    # Check if it's a title (usually first text element)
-                    if shape == slide.shapes[0] and hasattr(shape, "text_frame"):
+                    # Check if it's a title by checking placeholder type
+                    is_title = False
+                    if hasattr(shape, "placeholder_format"):
+                        try:
+                            from pptx.enum.shapes import PP_PLACEHOLDER
+                            if shape.placeholder_format.type in [
+                                PP_PLACEHOLDER.TITLE,
+                                PP_PLACEHOLDER.CENTER_TITLE,
+                            ]:
+                                is_title = True
+                        except (AttributeError, ImportError):
+                            # Fallback to checking if it's the first shape
+                            is_title = shape == slide.shapes[0]
+
+                    if is_title:
                         markdown_lines.append(f"### {text}")
                     else:
                         # Split by lines and format as list or paragraph
@@ -75,12 +88,15 @@ class PptxConverter(BaseConverter):
 
             # Add speaker notes if available
             if self.include_notes and slide.has_notes_slide:
-                notes_text = slide.notes_slide.notes_text_frame.text.strip()
-                if notes_text:
-                    markdown_lines.append("**Notes:**")
-                    markdown_lines.append("")
-                    markdown_lines.append(notes_text)
-                    markdown_lines.append("")
+                notes_slide = slide.notes_slide
+                has_notes_frame = hasattr(notes_slide, "notes_text_frame")
+                if has_notes_frame and notes_slide.notes_text_frame:
+                    notes_text = notes_slide.notes_text_frame.text.strip()
+                    if notes_text:
+                        markdown_lines.append("**Notes:**")
+                        markdown_lines.append("")
+                        markdown_lines.append(notes_text)
+                        markdown_lines.append("")
 
             markdown_lines.append("---")
             markdown_lines.append("")
