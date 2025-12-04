@@ -23,7 +23,7 @@ class BaseConverter(ABC):
         **kwargs
     ):
         """
-        Initialize converter.
+        Initialize converter with image handling modes.
 
         Args:
             input_path: Path to input file
@@ -38,7 +38,7 @@ class BaseConverter(ABC):
             Path(output_path) if output_path else self._default_output_path()
         )
 
-        # Image handling modes (mutually exclusive)
+        # Image handling modes (mutually exclusive per Copilot instructions)
         self.skip_images = skip_images
         self.embed_images = embed_images
         self.extract_images = (
@@ -78,7 +78,7 @@ class BaseConverter(ABC):
         logger.info(f"Saved: {self.output_path}")
 
     def convert_and_save(self) -> None:
-        """Convert and save in one operation."""
+        """Convert and save in one operation, extracting images if needed."""
         self.save()
         if self.extract_images and self.extracted_images:
             logger.info(
@@ -100,7 +100,7 @@ class BaseConverter(ABC):
             return ""
 
         if self.embed_images:
-            # Embed as base64
+            # Embed as base64 inline
             b64_data = base64.b64encode(image_data).decode("utf-8")
             return f"![](data:image/{image_format};base64,{b64_data})"
 
@@ -113,23 +113,28 @@ class BaseConverter(ABC):
             filename = f"image_{image_count}.{image_format}"
             image_path = self.images_dir / filename
 
-            # Save image
+            # Save image to disk
             with open(image_path, "wb") as f:
                 f.write(image_data)
 
-            # Store mapping
+            # Store mapping to avoid duplicates
             image_key = hash(image_data)
             self.extracted_images[image_key] = filename
 
-            # Return relative markdown reference
+            # Return relative markdown reference (FIXED: removed extra underscore)
             relative_path = f"{self.output_path.stem}_images/{filename}"
-            return f"![](./_{relative_path})"
+            return f"![](./{relative_path})"  # Changed from ./_{relative_path}
 
         return ""
 
     def _replace_base64_images(self, markdown: str) -> str:
         """
         Replace base64 images in markdown based on mode.
+
+        Handles mammoth-generated base64 images by:
+        - Extracting to files (default)
+        - Keeping inline (--embed-images)
+        - Removing entirely (--skip-images)
 
         Args:
             markdown: Markdown content potentially containing base64 images
@@ -150,7 +155,6 @@ class BaseConverter(ABC):
             pattern = r"!\[([^\]]*)\]\(data:image/([a-z]+);base64,([A-Za-z0-9+/=]+)\)"
 
             def replace_func(match):
-                alt_text = match.group(1)
                 image_format = match.group(2)
                 b64_data = match.group(3)
 

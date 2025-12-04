@@ -1,104 +1,79 @@
-"""Converter for PPTX files using python-pptx."""
+"""Converter for PPTX/PPT files."""
 
+import logging
+from pathlib import Path
 from typing import Optional
-
-from pptx import Presentation
 
 from office2md.converters.base_converter import BaseConverter
 
+logger = logging.getLogger(__name__)
+
+try:
+    from pptx import Presentation
+    PPTX_AVAILABLE = True
+except ImportError:
+    PPTX_AVAILABLE = False
+
 
 class PptxConverter(BaseConverter):
-    """Converter for PPTX files to Markdown."""
+    """Converter for PPTX/PPT files."""
 
     def __init__(
         self,
         input_path: str,
         output_path: Optional[str] = None,
         include_notes: bool = True,
+        **kwargs
     ):
         """
-        Initialize the PPTX converter.
+        Initialize PPTX converter.
 
         Args:
-            input_path: Path to the input PPTX file
-            output_path: Optional path for the output Markdown file
-            include_notes: If True, include speaker notes in the output
+            input_path: Path to input PPTX file
+            output_path: Optional output path
+            include_notes: Include speaker notes (default: True)
+            **kwargs: Additional options (extract_images, embed_images, skip_images)
         """
-        super().__init__(input_path, output_path)
+        super().__init__(input_path, output_path, **kwargs)
         self.include_notes = include_notes
 
     def convert(self) -> str:
-        """
-        Convert PPTX to Markdown.
+        """Convert PPTX to Markdown."""
+        if not PPTX_AVAILABLE:
+            raise RuntimeError("python-pptx is not available for PPTX conversion")
 
-        Returns:
-            The Markdown content as a string
-        """
-        self.logger.info(f"Converting PPTX file: {self.input_path}")
-        prs = Presentation(self.input_path)
-        markdown_lines = []
+        try:
+            logger.info("Converting PPTX using python-pptx")
+            presentation = Presentation(self.input_path)
 
-        for slide_num, slide in enumerate(prs.slides, 1):
-            markdown_lines.append(f"## Slide {slide_num}")
-            markdown_lines.append("")
+            markdown_lines = []
 
-            # Extract text from all shapes
-            for shape in slide.shapes:
-                if hasattr(shape, "text") and shape.text.strip():
-                    text = shape.text.strip()
-                    # Check if it's a title by checking placeholder type
-                    is_title = False
-                    if hasattr(shape, "placeholder_format"):
-                        try:
-                            from pptx.enum.shapes import PP_PLACEHOLDER
-                            if shape.placeholder_format.type in [
-                                PP_PLACEHOLDER.TITLE,
-                                PP_PLACEHOLDER.CENTER_TITLE,
-                            ]:
-                                is_title = True
-                        except (AttributeError, ImportError):
-                            # Fallback to checking if it's the first shape
-                            is_title = shape == slide.shapes[0]
+            for slide_num, slide in enumerate(presentation.slides, 1):
+                # Slide heading
+                markdown_lines.append(f"## Slide {slide_num}")
+                markdown_lines.append("")
 
-                    if is_title:
-                        markdown_lines.append(f"### {text}")
-                    else:
-                        # Split by lines and format as list or paragraph
-                        lines = text.split("\n")
-                        if len(lines) > 1:
-                            for line in lines:
-                                line = line.strip()
-                                if line:
-                                    markdown_lines.append(f"- {line}")
-                        else:
-                            markdown_lines.append(text)
-                    markdown_lines.append("")
+                # Extract text from shapes
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        # Simple bullet detection (basic implementation)
+                        text = shape.text.strip()
+                        if len(text) > 0:
+                            markdown_lines.append(f"- {text}")
 
-                # Handle tables
-                if shape.has_table:
-                    table = shape.table
-                    for i, row in enumerate(table.rows):
-                        cells = [cell.text.strip() for cell in row.cells]
-                        markdown_lines.append("| " + " | ".join(cells) + " |")
-                        if i == 0:  # Add header separator
-                            markdown_lines.append(
-                                "| " + " | ".join(["---"] * len(cells)) + " |"
-                            )
-                    markdown_lines.append("")
-
-            # Add speaker notes if available
-            if self.include_notes and slide.has_notes_slide:
-                notes_slide = slide.notes_slide
-                has_notes_frame = hasattr(notes_slide, "notes_text_frame")
-                if has_notes_frame and notes_slide.notes_text_frame:
+                # Add speaker notes if requested
+                if self.include_notes and slide.has_notes_slide:
+                    notes_slide = slide.notes_slide
                     notes_text = notes_slide.notes_text_frame.text.strip()
                     if notes_text:
+                        markdown_lines.append("")
                         markdown_lines.append("**Notes:**")
-                        markdown_lines.append("")
-                        markdown_lines.append(notes_text)
-                        markdown_lines.append("")
+                        markdown_lines.append(f"> {notes_text}")
 
-            markdown_lines.append("---")
-            markdown_lines.append("")
+                markdown_lines.append("")
 
-        return "\n".join(markdown_lines)
+            return "\n".join(markdown_lines)
+
+        except Exception as e:
+            logger.error(f"Error converting PPTX: {e}")
+            raise

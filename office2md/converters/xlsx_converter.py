@@ -1,80 +1,98 @@
-"""Converter for XLSX/XLS files using openpyxl."""
+"""Converter for XLSX/XLS files."""
 
+import logging
+from pathlib import Path
 from typing import Optional
-
-import openpyxl
 
 from office2md.converters.base_converter import BaseConverter
 
+logger = logging.getLogger(__name__)
+
+try:
+    from openpyxl import load_workbook
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+
 
 class XlsxConverter(BaseConverter):
-    """Converter for XLSX/XLS files to Markdown."""
+    """Converter for XLSX/XLS files."""
 
     def __init__(
         self,
         input_path: str,
         output_path: Optional[str] = None,
         include_all_sheets: bool = True,
+        **kwargs
     ):
         """
-        Initialize the XLSX converter.
+        Initialize XLSX converter.
 
         Args:
-            input_path: Path to the input XLSX file
-            output_path: Optional path for the output Markdown file
-            include_all_sheets: If True, include all sheets. If False, only first sheet
+            input_path: Path to input XLSX file
+            output_path: Optional output path
+            include_all_sheets: Include all sheets (default: True)
+            **kwargs: Additional options (extract_images, embed_images, skip_images)
         """
-        super().__init__(input_path, output_path)
+        super().__init__(input_path, output_path, **kwargs)
         self.include_all_sheets = include_all_sheets
 
     def convert(self) -> str:
+        """Convert XLSX to Markdown."""
+        if not OPENPYXL_AVAILABLE:
+            raise RuntimeError("openpyxl is not available for XLSX conversion")
+
+        try:
+            logger.info("Converting XLSX using openpyxl")
+            workbook = load_workbook(self.input_path)
+
+            markdown_lines = []
+
+            # Determine which sheets to process
+            sheets = workbook.sheetnames
+            if not self.include_all_sheets and sheets:
+                sheets = [sheets[0]]
+
+            for sheet_name in sheets:
+                worksheet = workbook[sheet_name]
+
+                # Add sheet name as heading
+                markdown_lines.append(f"## {sheet_name}")
+                markdown_lines.append("")
+
+                # Convert sheet to markdown table
+                markdown_lines.append(self._sheet_to_markdown(worksheet))
+                markdown_lines.append("")
+
+            return "\n".join(markdown_lines)
+
+        except Exception as e:
+            logger.error(f"Error converting XLSX: {e}")
+            raise
+
+    def _sheet_to_markdown(self, worksheet) -> str:
         """
-        Convert XLSX to Markdown.
+        Convert a worksheet to Markdown table format.
+
+        Args:
+            worksheet: openpyxl Worksheet object
 
         Returns:
-            The Markdown content as a string
+            Markdown table string
         """
-        self.logger.info(f"Converting XLSX file: {self.input_path}")
-        workbook = openpyxl.load_workbook(self.input_path, data_only=True)
-        markdown_lines = []
+        rows = []
 
-        sheets = workbook.worksheets if self.include_all_sheets else [workbook.active]
-
-        for sheet in sheets:
-            markdown_lines.append(f"## {sheet.title}")
-            markdown_lines.append("")
-
-            # Get all rows
-            rows = list(sheet.iter_rows(values_only=True))
-            if not rows:
-                markdown_lines.append("*Empty sheet*")
-                markdown_lines.append("")
+        for i, row in enumerate(worksheet.iter_rows(values_only=True)):
+            # Skip empty rows
+            if not any(row):
                 continue
 
-            # Filter out completely empty rows
-            non_empty_rows = [
-                row for row in rows if any(cell is not None for cell in row)
-            ]
+            # Format cells
+            cells = [str(cell) if cell is not None else "" for cell in row]
+            rows.append("| " + " | ".join(cells) + " |")
 
-            if not non_empty_rows:
-                markdown_lines.append("*Empty sheet*")
-                markdown_lines.append("")
-                continue
+            # Add separator after header row
+            if i == 0:
+                rows.append("|" + "|".join([" --- " for _ in cells]) + "|")
 
-            # Find the maximum number of columns
-            max_cols = max(len(row) for row in non_empty_rows)
-
-            # Format as markdown table
-            for i, row in enumerate(non_empty_rows):
-                # Pad row to max_cols and convert None to empty string
-                cells = [str(cell) if cell is not None else "" for cell in row]
-                cells.extend([""] * (max_cols - len(cells)))
-                markdown_lines.append("| " + " | ".join(cells) + " |")
-
-                # Add separator after first row (header)
-                if i == 0:
-                    markdown_lines.append("| " + " | ".join(["---"] * max_cols) + " |")
-
-            markdown_lines.append("")
-
-        return "\n".join(markdown_lines)
+        return "\n".join(rows) if rows else ""
