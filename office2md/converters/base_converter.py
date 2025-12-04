@@ -1,12 +1,11 @@
-"""Base converter class for all Office file converters."""
+"""Abstract base class for all format converters."""
 
+import base64
 import logging
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
-import base64
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -35,20 +34,26 @@ class BaseConverter(ABC):
             **kwargs: Additional converter-specific options
         """
         self.input_path = Path(input_path)
-        self.output_path = Path(output_path) if output_path else self._default_output_path()
-        
+        self.output_path = (
+            Path(output_path) if output_path else self._default_output_path()
+        )
+
         # Image handling modes (mutually exclusive)
         self.skip_images = skip_images
         self.embed_images = embed_images
-        self.extract_images = extract_images and not embed_images and not skip_images
-        
+        self.extract_images = (
+            extract_images and not embed_images and not skip_images
+        )
+
         # Image directory for extraction mode
         if self.extract_images:
-            self.images_dir = self.output_path.parent / f"{self.output_path.stem}_images"
+            self.images_dir = (
+                self.output_path.parent / f"{self.output_path.stem}_images"
+            )
         else:
             self.images_dir = None
 
-        self.extracted_images = {}  # Maps image data/url to filename
+        self.extracted_images = {}  # Maps image hash to filename
         self.kwargs = kwargs
 
     def _default_output_path(self) -> Path:
@@ -76,7 +81,9 @@ class BaseConverter(ABC):
         """Convert and save in one operation."""
         self.save()
         if self.extract_images and self.extracted_images:
-            logger.info(f"Extracted {len(self.extracted_images)} images to {self.images_dir}")
+            logger.info(
+                f"Extracted {len(self.extracted_images)} images to {self.images_dir}"
+            )
 
     def _process_image(self, image_data: bytes, image_format: str = "png") -> str:
         """
@@ -100,20 +107,20 @@ class BaseConverter(ABC):
         if self.extract_images:
             # Extract to images subdirectory
             self.images_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Generate unique filename
             image_count = len(self.extracted_images) + 1
             filename = f"image_{image_count}.{image_format}"
             image_path = self.images_dir / filename
-            
+
             # Save image
             with open(image_path, "wb") as f:
                 f.write(image_data)
-            
+
             # Store mapping
             image_key = hash(image_data)
             self.extracted_images[image_key] = filename
-            
+
             # Return relative markdown reference
             relative_path = f"{self.output_path.stem}_images/{filename}"
             return f"![](./_{relative_path})"
@@ -141,12 +148,12 @@ class BaseConverter(ABC):
         if self.extract_images:
             # Extract base64 images to files
             pattern = r"!\[([^\]]*)\]\(data:image/([a-z]+);base64,([A-Za-z0-9+/=]+)\)"
-            
+
             def replace_func(match):
                 alt_text = match.group(1)
                 image_format = match.group(2)
                 b64_data = match.group(3)
-                
+
                 try:
                     image_data = base64.b64decode(b64_data)
                     ref = self._process_image(image_data, image_format)
@@ -154,7 +161,7 @@ class BaseConverter(ABC):
                 except Exception as e:
                     logger.warning(f"Failed to extract image: {e}")
                     return ""
-            
+
             return re.sub(pattern, replace_func, markdown)
 
         return markdown

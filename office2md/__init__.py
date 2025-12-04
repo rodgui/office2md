@@ -5,7 +5,7 @@ try:
 except ImportError:
     __version__ = "0.1.0"  # fallback version
 
-__author__ = "Your Name"
+__author__ = "Rodrigo Guimaraes"
 __license__ = "MIT"
 
 from office2md.converter_factory import ConverterFactory
