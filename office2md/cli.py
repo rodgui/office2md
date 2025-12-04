@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import List
 
+from office2md import __version__
 from office2md.converter_factory import ConverterFactory
 
 
@@ -48,12 +49,23 @@ def convert_file(input_path: str, output_path: str = None, **kwargs) -> bool:
         extension = file_path.suffix.lower()
 
         filtered_kwargs = {}
+        
+        # Image handling (applies to all formats)
+        if "extract_images" in kwargs:
+            filtered_kwargs["extract_images"] = kwargs["extract_images"]
+        if "embed_images" in kwargs:
+            filtered_kwargs["embed_images"] = kwargs["embed_images"]
+        if "skip_images" in kwargs:
+            filtered_kwargs["skip_images"] = kwargs["skip_images"]
+        
         if extension == ".docx":
             if "use_mammoth" in kwargs:
                 filtered_kwargs["use_mammoth"] = kwargs["use_mammoth"]
+                
         elif extension in [".xlsx", ".xls"]:
             if "include_all_sheets" in kwargs:
                 filtered_kwargs["include_all_sheets"] = kwargs["include_all_sheets"]
+                
         elif extension in [".pptx", ".ppt"]:
             if "include_notes" in kwargs:
                 filtered_kwargs["include_notes"] = kwargs["include_notes"]
@@ -69,144 +81,82 @@ def convert_file(input_path: str, output_path: str = None, **kwargs) -> bool:
         return False
 
 
-def batch_convert(
-    input_dir: str, output_dir: str = None, recursive: bool = False, **kwargs
-) -> tuple:
-    """
-    Convert multiple files in a directory.
-
-    Args:
-        input_dir: Directory containing input files
-        output_dir: Optional directory for output files
-        recursive: If True, process subdirectories recursively
-        **kwargs: Additional converter options
-
-    Returns:
-        Tuple of (success_count, failure_count)
-    """
-    logger = logging.getLogger(__name__)
-    input_path = Path(input_dir)
-
-    if not input_path.is_dir():
-        logger.error(f"Input directory not found: {input_dir}")
-        return 0, 0
-
-    # Find all supported files
-    pattern = "**/*" if recursive else "*"
-    all_files = input_path.glob(pattern)
-    supported_files = [f for f in all_files if ConverterFactory.is_supported(str(f))]
-
-    if not supported_files:
-        logger.warning(f"No supported files found in: {input_dir}")
-        return 0, 0
-
-    logger.info(f"Found {len(supported_files)} files to convert")
-
-    success_count = 0
-    failure_count = 0
-
-    for file_path in supported_files:
-        # Calculate output path
-        if output_dir:
-            output_path_obj = Path(output_dir)
-            if recursive:
-                # Preserve directory structure
-                rel_path = file_path.relative_to(input_path)
-                output_path_obj = output_path_obj / rel_path.parent
-            output_path_obj.mkdir(parents=True, exist_ok=True)
-            output_file = str(output_path_obj / file_path.with_suffix(".md").name)
-        else:
-            output_file = None
-
-        if convert_file(str(file_path), output_file, **kwargs):
-            success_count += 1
-        else:
-            failure_count += 1
-
-    logger.info(
-        f"Batch conversion complete: {success_count} successful, {failure_count} failed"
-    )
-    return success_count, failure_count
-
-
 def main(argv: List[str] = None) -> int:
-    """
-    Main entry point for the CLI.
-
-    Args:
-        argv: Command line arguments (defaults to sys.argv[1:])
-
-    Returns:
-        Exit code (0 for success, non-zero for failure)
-    """
+    """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
         description="Convert Office files (docx, xlsx, pptx) to Markdown",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Convert a single file
+  # Default: extract images to subdirectory
   office2md document.docx
 
-  # Convert with custom output path
-  office2md document.docx -o output.md
+  # Embed images as base64
+  office2md document.docx --embed-images
 
-  # Batch convert all files in a directory
-  office2md --batch ./input_dir -o ./output_dir
+  # Skip images entirely
+  office2md document.docx --skip-images
 
-  # Recursive batch conversion
-  office2md --batch ./input_dir -o ./output_dir --recursive
-
-  # Enable verbose logging
-  office2md document.docx -v
+  # Batch with image extraction
+  office2md --batch ./input -o ./output --recursive
         """,
     )
 
+    parser.add_argument("input", help="Input file or directory (with --batch)")
     parser.add_argument(
-        "input",
-        help="Input file or directory (with --batch)",
-    )
-
-    parser.add_argument(
-        "-o",
-        "--output",
+        "-o", "--output",
         help="Output file or directory (with --batch). "
         "If not specified, uses input filename with .md extension",
     )
-
     parser.add_argument(
-        "-b",
-        "--batch",
+        "-b", "--batch",
         action="store_true",
         help="Batch mode: convert all supported files in input directory",
     )
-
     parser.add_argument(
-        "-r",
-        "--recursive",
+        "-r", "--recursive",
         action="store_true",
         help="Process directories recursively (only with --batch)",
     )
-
     parser.add_argument(
-        "-v",
-        "--verbose",
+        "-v", "--verbose",
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"office2md {__version__}",
+        help="Show version and exit",
+    )
 
-    # Converter-specific options
+    # Image handling options
+    parser.add_argument(
+        "--embed-images",
+        action="store_true",
+        help="Embed images as base64 in markdown (default: extract to images/)",
+    )
+    parser.add_argument(
+        "--skip-images",
+        action="store_true",
+        help="Skip/remove images entirely",
+    )
+
+    # DOCX options
     parser.add_argument(
         "--no-mammoth",
         action="store_true",
         help="Don't use mammoth for DOCX conversion (use python-docx instead)",
     )
 
+    # XLSX options
     parser.add_argument(
         "--first-sheet-only",
         action="store_true",
         help="Only convert first sheet of XLSX files",
     )
 
+    # PPTX options
     parser.add_argument(
         "--no-notes",
         action="store_true",
@@ -214,7 +164,6 @@ Examples:
     )
 
     args = parser.parse_args(argv)
-
     setup_logging(args.verbose)
 
     # Prepare converter options
@@ -222,6 +171,9 @@ Examples:
         "use_mammoth": not args.no_mammoth,
         "include_all_sheets": not args.first_sheet_only,
         "include_notes": not args.no_notes,
+        "embed_images": args.embed_images,
+        "skip_images": args.skip_images,
+        "extract_images": not args.embed_images and not args.skip_images,
     }
 
     try:
@@ -233,6 +185,7 @@ Examples:
         else:
             success = convert_file(args.input, args.output, **converter_kwargs)
             return 0 if success else 1
+            
     except KeyboardInterrupt:
         print("\nConversion interrupted by user", file=sys.stderr)
         return 130

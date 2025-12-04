@@ -22,41 +22,29 @@ except ImportError:
 
 
 class DocxConverter(BaseConverter):
-    """Converter for DOCX files to Markdown."""
+    """Converter for DOCX files."""
 
-    def __init__(
-        self,
-        input_path: str,
-        output_path: Optional[str] = None,
-        use_mammoth: bool = True,
-    ):
-        """
-        Initialize the DOCX converter.
-
-        Args:
-            input_path: Path to the input DOCX file
-            output_path: Optional path for the output Markdown file
-            use_mammoth: If True, use mammoth for high-quality conversion.
-                        If False or mammoth unavailable, use python-docx
-        """
-        super().__init__(input_path, output_path)
-        self.use_mammoth = use_mammoth and MAMMOTH_AVAILABLE
+    def __init__(self, input_path: str, output_path: str = None, **kwargs):
+        super().__init__(input_path, output_path, **kwargs)
+        self.use_mammoth = kwargs.get("use_mammoth", True) and MAMMOTH_AVAILABLE
 
     def convert(self) -> str:
-        """
-        Convert DOCX to Markdown.
+        """Convert DOCX to Markdown."""
+        try:
+            if self.use_mammoth and MAMMOTH_AVAILABLE:
+                markdown = self._convert_with_mammoth()
+            else:
+                if not MAMMOTH_AVAILABLE:
+                    logger.warning("mammoth not available, falling back to python-docx")
+                markdown = self._convert_with_python_docx()
 
-        Returns:
-            The Markdown content as a string
-        """
-        if self.use_mammoth:
-            return self._convert_with_mammoth()
-        elif PYTHON_DOCX_AVAILABLE:
-            return self._convert_with_python_docx()
-        else:
-            raise RuntimeError(
-                "No DOCX converter available. Install mammoth or python-docx."
-            )
+            # Process images based on mode
+            markdown = self._replace_base64_images(markdown)
+            return markdown
+
+        except Exception as e:
+            logger.error(f"Error converting DOCX: {e}")
+            raise
 
     def _convert_with_mammoth(self) -> str:
         """Convert using mammoth library for high-quality conversion."""
