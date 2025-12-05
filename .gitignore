@@ -225,3 +225,5 @@ secrets.json
 *.db
 *.sqlite
 *.sqlite3
+template/python-copilot-instructions_.md
+templates/python-copilot-instructions.md
