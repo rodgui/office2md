@@ -106,6 +106,11 @@ class QualityChecker:
         if not self.input_file.exists():
             raise FileNotFoundError(f"Input file not found: {self.input_file}")
         
+        # Filter out docling for non-PDF files
+        if self.input_file.suffix.lower() != '.pdf' and 'docling' in self.converters:
+            self.converters = [c for c in self.converters if c != 'docling']
+            print(f"ℹ️  Docling skipped (only supports PDF files)")
+        
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
     

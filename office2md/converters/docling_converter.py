@@ -1,11 +1,11 @@
-"""Docling-based converter for DOCX and PDF files."""
+"""Docling-based converter for PDF files."""
 
 import base64
 import io
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Any
 
 from office2md.converters.base_converter import BaseConverter
 
@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 try:
     from docling.document_converter import DocumentConverter
-    from docling.datamodel.base_models import InputFormat
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
-    from docling.document_converter import PdfFormatOption
     DOCLING_AVAILABLE = True
 except ImportError:
     DOCLING_AVAILABLE = False
+
+# Docling works best with PDFs - DOCX support is limited
+DOCLING_SUPPORTED_EXTENSIONS = ['.pdf']
 
 
 class DoclingConverter(BaseConverter):
@@ -26,9 +26,10 @@ class DoclingConverter(BaseConverter):
     Document converter using Docling (IBM Research).
     
     Docling provides ML-based document parsing with excellent
-    support for complex layouts, tables, and images.
+    support for PDFs, including scanned documents and complex layouts.
     
-    Supports: DOCX, PDF, PPTX, and more.
+    **Note**: Docling is recommended only for PDF files.
+    For DOCX files, use the default converter or Pandoc.
     
     Requires: `pip install docling`
     """
@@ -50,218 +51,196 @@ class DoclingConverter(BaseConverter):
                 "See: https://github.com/DS4SD/docling"
             )
         
+        # Validate file type
+        file_ext = Path(input_path).suffix.lower()
+        if file_ext not in DOCLING_SUPPORTED_EXTENSIONS:
+            raise ValueError(
+                f"Docling is optimized for PDF files only.\n"
+                f"File '{input_path}' has extension '{file_ext}'.\n"
+                f"For DOCX files, use:\n"
+                f"  - Default converter: office2md document.docx\n"
+                f"  - Pandoc: office2md document.docx --use-pandoc"
+            )
+        
         self._image_counter = 0
+        self._extracted_images: List[str] = []
 
     def convert(self) -> str:
-        """Convert document to Markdown using Docling."""
-        logger.info(f"Converting with Docling: {self.input_path}")
+        """Convert PDF to Markdown using Docling."""
+        logger.info(f"Converting PDF with Docling: {self.input_path}")
         
         try:
-            # Initialize Docling converter with image extraction enabled
-            pipeline_options = PdfPipelineOptions()
-            pipeline_options.generate_picture_images = True
-            
-            converter = DocumentConverter(
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-                }
-            )
+            # Initialize Docling converter
+            converter = DocumentConverter()
             
             # Convert document
             result = converter.convert(str(self.input_path))
             doc = result.document
             
+            # Extract all images from the document
+            if self.extract_images and not self.skip_images:
+                self._extract_all_images(doc)
+            
             # Export to Markdown
             markdown = doc.export_to_markdown()
             
-            # Process images
-            if self.extract_images and not self.skip_images:
-                markdown = self._process_docling_images(markdown, doc)
-            elif self.skip_images:
-                # Remove image placeholders
-                markdown = re.sub(r'!\[.*?\]\(.*?\)', '', markdown)
-                markdown = re.sub(r'<!--\s*image\s*-->', '', markdown)
+            logger.debug(f"Original markdown length: {len(markdown)} chars")
+            
+            # Replace image placeholders with actual references
+            if self._extracted_images:
+                markdown = self._replace_image_placeholders(markdown)
             
             # Clean up markdown
             markdown = self._cleanup_docling_output(markdown)
             
-            logger.info("Docling conversion completed successfully")
+            logger.info(f"Docling conversion completed ({len(markdown)} chars, {len(self._extracted_images)} images)")
             return markdown
             
         except Exception as e:
             logger.error(f"Docling conversion failed: {e}")
             raise
 
-    def _process_docling_images(self, markdown: str, doc) -> str:
-        """
-        Process images from Docling document.
+    def _extract_all_images(self, doc: Any) -> None:
+        """Extract all images from Docling document."""
+        if self.images_dir:
+            self.images_dir.mkdir(parents=True, exist_ok=True)
         
-        Docling stores images in document.pictures or as page images.
-        """
-        try:
-            # Create images directory
-            if self.images_dir:
-                self.images_dir.mkdir(parents=True, exist_ok=True)
-            
-            image_refs = []
-            
-            # Method 1: Extract from pictures collection
-            if hasattr(doc, 'pictures') and doc.pictures:
-                for picture in doc.pictures:
-                    ref = self._extract_docling_picture(picture)
-                    if ref:
-                        image_refs.append(ref)
-            
-            # Method 2: Extract from pages
-            if hasattr(doc, 'pages') and doc.pages:
-                for page in doc.pages:
-                    if hasattr(page, 'image') and page.image:
-                        ref = self._extract_page_image(page.image)
-                        if ref:
-                            image_refs.append(ref)
-                    
-                    # Check for pictures in page
-                    if hasattr(page, 'pictures'):
-                        for picture in page.pictures:
-                            ref = self._extract_docling_picture(picture)
-                            if ref:
-                                image_refs.append(ref)
-            
-            # Method 3: Check document items
-            if hasattr(doc, 'items'):
-                for item in doc.items:
-                    if hasattr(item, 'image'):
-                        ref = self._extract_item_image(item)
-                        if ref:
-                            image_refs.append(ref)
-            
-            # Replace placeholders with actual image references
-            if image_refs:
-                markdown = self._replace_image_placeholders(markdown, image_refs)
-            
-            return markdown
-            
-        except Exception as e:
-            logger.warning(f"Failed to process Docling images: {e}")
-            return markdown
+        # From document pictures
+        if hasattr(doc, 'pictures'):
+            for picture in (doc.pictures or []):
+                self._extract_picture(picture)
+        
+        # From document pages
+        if hasattr(doc, 'pages'):
+            for page in (doc.pages or []):
+                if hasattr(page, 'image') and page.image:
+                    self._extract_image_object(page.image)
+                
+                if hasattr(page, 'pictures'):
+                    for picture in (page.pictures or []):
+                        self._extract_picture(picture)
+        
+        # Iterate through all items
+        if hasattr(doc, 'iterate_items'):
+            try:
+                for item, level in doc.iterate_items():
+                    if hasattr(item, 'image') and item.image:
+                        self._extract_image_object(item.image)
+                    if hasattr(item, 'pil_image') and item.pil_image:
+                        self._save_pil_image(item.pil_image)
+            except Exception as e:
+                logger.debug(f"iterate_items failed: {e}")
+        
+        logger.debug(f"Extracted {len(self._extracted_images)} images")
 
-    def _extract_docling_picture(self, picture) -> Optional[str]:
+    def _extract_picture(self, picture: Any) -> Optional[str]:
         """Extract image from Docling picture object."""
         try:
-            image_data = None
-            ext = 'png'
+            if hasattr(picture, 'pil_image') and picture.pil_image:
+                return self._save_pil_image(picture.pil_image)
             
-            # Try different ways to get image data
             if hasattr(picture, 'image'):
-                if hasattr(picture.image, 'pil_image') and picture.image.pil_image:
-                    # PIL Image
-                    img_buffer = io.BytesIO()
-                    picture.image.pil_image.save(img_buffer, format='PNG')
-                    image_data = img_buffer.getvalue()
-                elif hasattr(picture.image, 'data'):
-                    image_data = picture.image.data
-                elif hasattr(picture.image, 'uri') and picture.image.uri:
-                    if picture.image.uri.startswith('data:'):
-                        match = re.match(r'data:image/(\w+);base64,(.+)', picture.image.uri)
-                        if match:
-                            ext = match.group(1)
-                            image_data = base64.b64decode(match.group(2))
+                return self._extract_image_object(picture.image)
             
-            elif hasattr(picture, 'data'):
-                image_data = picture.data
-            
-            elif hasattr(picture, 'pil_image') and picture.pil_image:
-                img_buffer = io.BytesIO()
-                picture.pil_image.save(img_buffer, format='PNG')
-                image_data = img_buffer.getvalue()
-            
-            if image_data:
-                return self._process_image(image_data, ext)
-            
+            if hasattr(picture, 'data') and picture.data:
+                ref = self._process_image(picture.data, 'png')
+                if ref:
+                    self._extracted_images.append(ref)
+                    return ref
+                    
         except Exception as e:
             logger.debug(f"Failed to extract picture: {e}")
         
         return None
 
-    def _extract_page_image(self, page_image) -> Optional[str]:
-        """Extract image from page image object."""
+    def _extract_image_object(self, image_obj: Any) -> Optional[str]:
+        """Extract image from image object."""
         try:
-            if hasattr(page_image, 'pil_image') and page_image.pil_image:
-                img_buffer = io.BytesIO()
-                page_image.pil_image.save(img_buffer, format='PNG')
-                return self._process_image(img_buffer.getvalue(), 'png')
+            if hasattr(image_obj, 'pil_image') and image_obj.pil_image:
+                return self._save_pil_image(image_obj.pil_image)
+            
+            if hasattr(image_obj, 'data') and image_obj.data:
+                ref = self._process_image(image_obj.data, 'png')
+                if ref:
+                    self._extracted_images.append(ref)
+                    return ref
+            
+            if hasattr(image_obj, 'uri') and image_obj.uri:
+                if image_obj.uri.startswith('data:'):
+                    match = re.match(r'data:image/(\w+);base64,(.+)', image_obj.uri)
+                    if match:
+                        ext = match.group(1)
+                        data = base64.b64decode(match.group(2))
+                        ref = self._process_image(data, ext)
+                        if ref:
+                            self._extracted_images.append(ref)
+                            return ref
+                            
         except Exception as e:
-            logger.debug(f"Failed to extract page image: {e}")
-        return None
-
-    def _extract_item_image(self, item) -> Optional[str]:
-        """Extract image from document item."""
-        try:
-            if hasattr(item, 'image') and item.image:
-                if hasattr(item.image, 'pil_image') and item.image.pil_image:
-                    img_buffer = io.BytesIO()
-                    item.image.pil_image.save(img_buffer, format='PNG')
-                    return self._process_image(img_buffer.getvalue(), 'png')
-        except Exception as e:
-            logger.debug(f"Failed to extract item image: {e}")
-        return None
-
-    def _replace_image_placeholders(self, markdown: str, image_refs: list) -> str:
-        """
-        Replace image placeholders with actual image references.
+            logger.debug(f"Failed to extract image object: {e}")
         
-        Docling may use various placeholder formats:
-        - <!-- image -->
-        - [image]
-        - {image}
-        - ![](...)
-        """
+        return None
+
+    def _save_pil_image(self, pil_image: Any) -> Optional[str]:
+        """Save PIL image and return markdown reference."""
+        try:
+            img_buffer = io.BytesIO()
+            pil_image.save(img_buffer, format='PNG')
+            ref = self._process_image(img_buffer.getvalue(), 'png')
+            if ref:
+                self._extracted_images.append(ref)
+                return ref
+        except Exception as e:
+            logger.debug(f"Failed to save PIL image: {e}")
+        return None
+
+    def _replace_image_placeholders(self, markdown: str) -> str:
+        """Replace image placeholders with actual image references."""
+        if not self._extracted_images:
+            return markdown
+        
         ref_index = 0
         
-        # Pattern for various image placeholders
         patterns = [
             r'<!--\s*image\s*-->',
             r'\[image\d*\]',
             r'\{image\d*\}',
-            r'!\[\]\(\s*\)',  # Empty image reference
+            r'!\[\]\(\s*\)',
+            r'\[\[image\]\]',
         ]
         
         for pattern in patterns:
-            def replace_placeholder(match):
-                nonlocal ref_index
-                if ref_index < len(image_refs):
-                    ref = image_refs[ref_index]
-                    ref_index += 1
-                    return ref
-                return match.group(0)
+            def make_replacer(idx_holder):
+                def replacer(match):
+                    if idx_holder[0] < len(self._extracted_images):
+                        ref = self._extracted_images[idx_holder[0]]
+                        idx_holder[0] += 1
+                        return ref
+                    return match.group(0)
+                return replacer
             
-            markdown = re.sub(pattern, replace_placeholder, markdown)
+            idx_holder = [ref_index]
+            markdown = re.sub(pattern, make_replacer(idx_holder), markdown, flags=re.IGNORECASE)
+            ref_index = idx_holder[0]
         
-        # If we still have unused images, append them at positions where they might belong
-        # Look for lines that might be image captions
-        if ref_index < len(image_refs):
-            remaining_refs = image_refs[ref_index:]
-            
-            # Append remaining images at the end with a note
-            if remaining_refs:
-                markdown += "\n\n<!-- Additional extracted images -->\n"
-                for ref in remaining_refs:
+        # Append unused images at the end
+        if ref_index < len(self._extracted_images):
+            remaining = self._extracted_images[ref_index:]
+            if remaining:
+                markdown += "\n\n"
+                for ref in remaining:
                     markdown += f"\n{ref}\n"
         
         return markdown
 
     def _cleanup_docling_output(self, markdown: str) -> str:
         """Clean up Docling markdown output."""
-        # Remove empty image references
         markdown = re.sub(r'!\[\]\(\s*\)', '', markdown)
-        
-        # Remove orphaned image placeholders
         markdown = re.sub(r'<!--\s*image\s*-->', '', markdown)
-        
-        # Clean up multiple blank lines
+        markdown = re.sub(r'\[image\d*\]', '', markdown)
+        markdown = re.sub(r'\{image\d*\}', '', markdown)
         markdown = re.sub(r'\n{3,}', '\n\n', markdown)
         
-        # Clean up trailing whitespace
         lines = markdown.split('\n')
         lines = [line.rstrip() for line in lines]
         markdown = '\n'.join(lines)

@@ -1,61 +1,102 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "office2md"
 dynamic = ["version"]
-description = "Convert Office files (DOCX, XLSX, PPTX) to Markdown"
+description = "Convert Microsoft Office documents (DOCX, XLSX, PPTX) and PDFs to Markdown"
 readme = "README.md"
-requires-python = ">=3.8"
 license = {text = "MIT"}
+requires-python = ">=3.8"
 authors = [
-    {name = "Rodrigo Guimaraes"}
+    {name = "Your Name", email = "your.email@example.com"}
 ]
-keywords = ["office", "markdown", "converter", "docx", "xlsx", "pptx"]
+keywords = [
+    "markdown",
+    "docx",
+    "xlsx",
+    "pptx",
+    "pdf",
+    "converter",
+    "office",
+    "word",
+    "excel",
+    "powerpoint",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Office/Business",
 ]
 
 dependencies = [
-    "mammoth>=1.6.0",
     "python-docx>=1.1.0",
     "openpyxl>=3.1.0",
     "python-pptx>=0.6.23",
+    "mammoth>=1.6.0",
+    "markdownify>=0.11.0",
+    "Pillow>=9.0.0",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "black>=23.0",
-    "flake8>=6.0",
+pdf = [
+    "docling>=1.0.0",
 ]
-
-[project.urls]
-"Homepage" = "https://github.com/rodgui/office2md"
-"Bug Tracker" = "https://github.com/rodgui/office2md/issues"
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+all = [
+    "office2md[pdf,dev]",
+]
 
 [project.scripts]
 office2md = "office2md.cli:main"
 
-[tool.setuptools_scm]
-write_to = "office2md/_version.py"
-version_scheme = "post-release"
-tag_regex = "^(?P<prefix>v)?(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[._-]?(?:alpha|a|beta|b|rc)\\d*)?)(?P<suffix>.*)?$"
+[project.urls]
+Homepage = "https://github.com/yourusername/office2md"
+Documentation = "https://github.com/yourusername/office2md#readme"
+Repository = "https://github.com/yourusername/office2md.git"
+Issues = "https://github.com/yourusername/office2md/issues"
+Changelog = "https://github.com/yourusername/office2md/blob/main/CHANGELOG.md"
 
-[tool.black]
-line-length = 100
-target-version = ['py38']
+[tool.setuptools.dynamic]
+version = {attr = "office2md.__version__.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["office2md*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --cov=office2md --cov-report=html"
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
