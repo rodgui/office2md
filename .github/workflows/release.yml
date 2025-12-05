@@ -36,5 +36,4 @@ jobs:
       
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: pypi-AgEIcHlwaS5vcmcCJDdlNmM4YzZkLTFjOTctNDhlNy1iZmJlLTMyZTkzMDNhZDNhMgACKlszLCI2ZjNkNTFlZC0wODBhLTQ4NmQtOTY0OS1iYjIwMGU0OWVjMjQiXQAABiCNEdh9jsiavRGAOfovhcjLVXwtmbTUvgl1zdGlfAcLrw
+       
