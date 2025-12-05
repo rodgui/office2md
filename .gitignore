@@ -235,8 +235,16 @@ marimo/_lsp/
 __marimo__/
 
 # Project specific
+examples/*
+examples*/*
 examples/input/*.docx
 examples/input/*.xlsx
 examples/input/*.pptx
 examples/input/*.md
 examples/output/*.md
+quality_tests*/**/*
+quality_tests/*
+quality_check*/
+quality_tests*/
+examples/.DS_Store
+*.DS_Store*

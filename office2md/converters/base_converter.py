@@ -38,7 +38,7 @@ class BaseConverter(ABC):
             Path(output_path) if output_path else self._default_output_path()
         )
 
-        # Image handling modes (mutually exclusive per Copilot instructions)
+        # Image handling modes (mutually exclusive)
         self.skip_images = skip_images
         self.embed_images = embed_images
         self.extract_images = (
@@ -53,7 +53,7 @@ class BaseConverter(ABC):
         else:
             self.images_dir = None
 
-        self.extracted_images = {}  # Maps image hash to filename
+        self.extracted_images = {}
         self.kwargs = kwargs
 
     def _default_output_path(self) -> Path:
@@ -78,7 +78,7 @@ class BaseConverter(ABC):
         logger.info(f"Saved: {self.output_path}")
 
     def convert_and_save(self) -> None:
-        """Convert and save in one operation, extracting images if needed."""
+        """Convert and save in one operation."""
         self.save()
         if self.extract_images and self.extracted_images:
             logger.info(
@@ -94,47 +94,36 @@ class BaseConverter(ABC):
             image_format: Image format (png, jpg, gif, etc.)
 
         Returns:
-            Markdown image reference (relative path or data URI)
+            Markdown image reference
         """
         if self.skip_images:
             return ""
 
         if self.embed_images:
-            # Embed as base64 inline
             b64_data = base64.b64encode(image_data).decode("utf-8")
             return f"![](data:image/{image_format};base64,{b64_data})"
 
         if self.extract_images:
-            # Extract to images subdirectory
             self.images_dir.mkdir(parents=True, exist_ok=True)
 
-            # Generate unique filename
             image_count = len(self.extracted_images) + 1
             filename = f"image_{image_count}.{image_format}"
             image_path = self.images_dir / filename
 
-            # Save image to disk
             with open(image_path, "wb") as f:
                 f.write(image_data)
 
-            # Store mapping to avoid duplicates
             image_key = hash(image_data)
             self.extracted_images[image_key] = filename
 
-            # Return relative markdown reference (FIXED: removed extra underscore)
             relative_path = f"{self.output_path.stem}_images/{filename}"
-            return f"![](./{relative_path})"  # Changed from ./_{relative_path}
+            return f"![](./{relative_path})"
 
         return ""
 
     def _replace_base64_images(self, markdown: str) -> str:
         """
         Replace base64 images in markdown based on mode.
-
-        Handles mammoth-generated base64 images by:
-        - Extracting to files (default)
-        - Keeping inline (--embed-images)
-        - Removing entirely (--skip-images)
 
         Args:
             markdown: Markdown content potentially containing base64 images
@@ -143,29 +132,39 @@ class BaseConverter(ABC):
             Processed markdown with images handled per mode
         """
         if self.skip_images:
-            # Remove all image references
             return re.sub(r"!\[.*?\]\(.*?\)", "", markdown)
 
         if self.embed_images:
-            # Keep as-is (already base64)
+            logger.info("Keeping images as base64 inline")
             return markdown
 
         if self.extract_images:
-            # Extract base64 images to files
-            pattern = r"!\[([^\]]*)\]\(data:image/([a-z]+);base64,([A-Za-z0-9+/=]+)\)"
+            # IMPROVED: More flexible pattern for base64 detection
+            # Handles: png, jpg, jpeg, gif, svg+xml, webp with optional whitespace
+            pattern = r"!\[([^\]]*)\]\(data:image/([a-zA-Z0-9+]+);base64,([A-Za-z0-9+/=\s]+)\)"
 
             def replace_func(match):
-                image_format = match.group(2)
-                b64_data = match.group(3)
+                alt_text = match.group(1)
+                image_format = match.group(2).lower().replace("+xml", "")  # svg+xml -> svg
+                b64_data = match.group(3).replace(" ", "").replace("\n", "").replace("\r", "")
 
                 try:
                     image_data = base64.b64decode(b64_data)
                     ref = self._process_image(image_data, image_format)
+                    logger.debug(f"Extracted image: format={image_format}, size={len(image_data)} bytes, alt='{alt_text}'")
                     return ref
                 except Exception as e:
-                    logger.warning(f"Failed to extract image: {e}")
+                    logger.warning(f"Failed to decode base64 image: {e}")
                     return ""
 
-            return re.sub(pattern, replace_func, markdown)
+            processed = re.sub(pattern, replace_func, markdown)
+            
+            # Log extraction summary
+            if self.extracted_images:
+                logger.info(f"Successfully extracted {len(self.extracted_images)} images")
+            else:
+                logger.warning("No images extracted - check if markdown contains base64 images")
+            
+            return processed
 
         return markdown

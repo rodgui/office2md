@@ -1,286 +1,256 @@
 # office2md
 
-Transform Office Documents to Markdown with ease.
-
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
-## Overview
-
-**office2md** is a modern Python tool for converting Microsoft Office files to Markdown format. It supports:
-
-- **Word documents** (.docx) - Using mammoth (recommended) for high-quality conversion with python-docx as fallback
-- **Excel spreadsheets** (.xlsx, .xls) - Using openpyxl
-- **PowerPoint presentations** (.pptx, .ppt) - Using python-pptx
+Convert Microsoft Office files (DOCX, XLSX, PPTX) to Markdown format.
 
 ## Features
 
-✨ **High-Quality Conversion**: Uses mammoth for superior DOCX to Markdown conversion  
-📦 **Batch Processing**: Convert entire directories of files at once  
-🔄 **Recursive Support**: Process nested directory structures  
-📝 **Rich Logging**: Detailed logging for debugging and monitoring  
-🎯 **CLI Interface**: Easy-to-use command-line interface  
-🧩 **Modular Design**: Clean, extensible architecture  
-✅ **Well Tested**: Comprehensive test suite included  
+- **DOCX → Markdown**: Full support for headings, lists, tables, images, and formatting
+- **XLSX → Markdown**: Convert spreadsheets to Markdown tables
+- **PPTX → Markdown**: Extract slides with optional speaker notes
+- **Image Extraction**: Automatically extract and reference images
+- **Multiple Converters**: Choose between mammoth, Pandoc, or Docling
 
 ## Installation
 
-### From source
-
 ```bash
-git clone https://github.com/rodgui/office2md.git
-cd office2md
-pip install -e .
+pip install office2md
 ```
 
-### For development
+### Optional Dependencies
 
+For Pandoc support (recommended for complex documents):
 ```bash
-git clone https://github.com/rodgui/office2md.git
-cd office2md
-pip install -e ".[dev]"
+# macOS
+brew install pandoc
+
+# Ubuntu/Debian
+sudo apt-get install pandoc
+
+# Windows
+choco install pandoc
+```
+
+For Docling support (ML-based, supports PDF):
+```bash
+pip install docling
 ```
 
 ## Quick Start
 
-### Convert a single file
+### Single File Conversion
 
 ```bash
+# Basic conversion (auto-generates output.md)
 office2md document.docx
+
+# Specify output file
+office2md document.docx -o output.md
+
+# Use Pandoc for better quality
+office2md document.docx --use-pandoc
+
+# Use Docling for complex documents or PDFs
+office2md document.pdf --use-docling
 ```
 
-This creates `document.md` in the same directory.
-
-### Specify output location
+### Batch Conversion
 
 ```bash
-office2md document.docx -o output/result.md
+# Convert all files in directory
+office2md --batch ./input -o ./output
+
+# Recursive conversion (preserves directory structure)
+office2md --batch ./input -o ./output --recursive
 ```
 
-### Batch convert a directory
+## Converter Options
+
+### DOCX Converters
+
+| Converter             | Flag            | Pros                  | Cons                      |
+| --------------------- | --------------- | --------------------- | ------------------------- |
+| **Mammoth** (default) | -               | Good formatting, fast | Tables can be imperfect   |
+| **Python-docx**       | `--no-mammoth`  | Direct parsing        | Less formatting           |
+| **Pandoc**            | `--use-pandoc`  | Best quality          | Requires external binary  |
+| **Docling**           | `--use-docling` | ML-based, handles PDF | Slower, more dependencies |
+
+### Image Handling
 
 ```bash
-office2md --batch ./input_dir -o ./output_dir
+# Extract images to subdirectory (default)
+office2md document.docx
+
+# Embed images as base64 in markdown
+office2md document.docx --embed-images
+
+# Skip images entirely
+office2md document.docx --skip-images
 ```
 
-### Recursive batch conversion
+### Format-Specific Options
 
 ```bash
-office2md --batch ./input_dir -o ./output_dir --recursive
-```
+# XLSX: Convert only first sheet
+office2md data.xlsx --first-sheet-only
 
-## Usage
-
-### Command Line Interface
-
-```bash
-office2md [OPTIONS] INPUT
-```
-
-#### Arguments
-
-- `INPUT` - Input file or directory (with --batch)
-
-#### Options
-
-- `-o, --output` - Output file or directory path
-- `-b, --batch` - Enable batch mode for directory processing
-- `-r, --recursive` - Process directories recursively (with --batch)
-- `-v, --verbose` - Enable verbose logging
-- `--no-mammoth` - Use python-docx instead of mammoth for DOCX files
-- `--first-sheet-only` - Only convert first sheet of Excel files
-- `--no-notes` - Exclude speaker notes from PowerPoint conversion
-
-### Python API
-
-```python
-from office2md import ConverterFactory
-
-# Convert a single file
-converter = ConverterFactory.create_converter("document.docx")
-markdown_content = converter.convert_and_save()
-
-# Or get content without saving
-markdown_content = converter.convert()
-
-# Specify output path
-converter = ConverterFactory.create_converter("document.docx", "output.md")
-converter.convert_and_save()
-
-# Use specific converters
-from office2md import DocxConverter, XlsxConverter, PptxConverter
-
-# DOCX with options
-docx_converter = DocxConverter("document.docx", use_mammoth=True)
-md_content = docx_converter.convert_and_save()
-
-# XLSX with options
-xlsx_converter = XlsxConverter("spreadsheet.xlsx", include_all_sheets=True)
-md_content = xlsx_converter.convert_and_save()
-
-# PPTX with options
-pptx_converter = PptxConverter("presentation.pptx", include_notes=True)
-md_content = pptx_converter.convert_and_save()
+# PPTX: Exclude speaker notes
+office2md slides.pptx --no-notes
 ```
 
 ## Examples
 
-See the [examples](examples/) directory for sample files and outputs.
-
-To generate sample Office files:
+### Basic DOCX Conversion
 
 ```bash
-python examples/create_samples.py
+office2md report.docx -o report.md -v
 ```
 
-Then convert them:
+Output structure:
+```
+report.md
+report_images/
+  ├── image_1.png
+  ├── image_2.png
+  └── image_3.png
+```
+
+### High-Quality Conversion with Pandoc
 
 ```bash
-office2md --batch examples/input -o examples/output
+office2md complex_document.docx --use-pandoc -o output.md
 ```
 
-## Architecture
+### PDF Conversion with Docling
 
-The project follows a modular architecture:
-
-```
-office2md/
-├── converters/
-│   ├── base_converter.py    # Abstract base class
-│   ├── docx_converter.py    # Word document converter
-│   ├── xlsx_converter.py    # Excel spreadsheet converter
-│   └── pptx_converter.py    # PowerPoint converter
-├── converter_factory.py     # Factory for creating converters
-└── cli.py                   # Command-line interface
+```bash
+office2md scanned_document.pdf --use-docling -o output.md
 ```
 
-### Adding New Converters
+### Batch Processing
 
-To add support for a new file format:
+```bash
+# Convert entire project documentation
+office2md --batch ./docs -o ./markdown --recursive -v
+```
 
-1. Create a new converter class inheriting from `BaseConverter`
-2. Implement the `convert()` method
-3. Register the file extension in `ConverterFactory.SUPPORTED_EXTENSIONS`
+## Python API
 
 ```python
-from office2md.converters.base_converter import BaseConverter
+from office2md import ConverterFactory
 
-class MyConverter(BaseConverter):
-    def convert(self) -> str:
-        # Your conversion logic here
-        return markdown_content
+# Create converter
+converter = ConverterFactory.create_converter(
+    "document.docx",
+    "output.md",
+    extract_images=True
+)
+
+# Convert and save
+converter.convert_and_save()
+
+# Or just get markdown string
+markdown = converter.convert()
+print(markdown)
+```
+
+### Using Specific Converters
+
+```python
+from office2md.converters.pandoc_converter import PandocConverter
+from office2md.converters.docling_converter import DoclingConverter
+
+# Pandoc (requires pandoc installed)
+converter = PandocConverter("document.docx", "output.md")
+markdown = converter.convert()
+
+# Docling (requires pip install docling)
+converter = DoclingConverter("document.pdf", "output.md")
+markdown = converter.convert()
+```
+
+## Supported Formats
+
+| Format     | Extension       | Default Converter     |
+| ---------- | --------------- | --------------------- |
+| Word       | `.docx`         | Mammoth + python-docx |
+| Excel      | `.xlsx`, `.xls` | openpyxl              |
+| PowerPoint | `.pptx`         | python-pptx           |
+| PDF        | `.pdf`          | Docling (optional)    |
+
+## Troubleshooting
+
+### Images Not Extracting
+
+Ensure you're not using `--skip-images` or `--embed-images`:
+```bash
+office2md document.docx -v
+```
+
+### Tables Not Rendering Correctly
+
+Try using Pandoc for better table support:
+```bash
+office2md document.docx --use-pandoc
+```
+
+### Complex Layouts
+
+For documents with complex layouts, use Docling:
+```bash
+pip install docling
+office2md document.docx --use-docling
+```
+
+### Verbose Logging
+
+Enable verbose mode to see detailed conversion logs:
+```bash
+office2md document.docx -v
 ```
 
 ## Development
 
-### Setup Development Environment
+### Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/rodgui/office2md.git
+git clone https://github.com/yourusername/office2md.git
 cd office2md
-
-# Install with development dependencies
 pip install -e ".[dev]"
 ```
 
 ### Running Tests
 
 ```bash
-# Run all tests
+# All tests
 pytest
 
-# Run with coverage
-pytest --cov=office2md --cov-report=html
+# With coverage
+pytest --cov=office2md
 
-# Run specific test file
-pytest tests/test_cli.py
+# Specific test file
+pytest tests/converters/test_docx_converter.py -v
 ```
 
-### Code Quality
+### Project Structure
 
-```bash
-# Format code with black
-black office2md tests
-
-# Lint with ruff
-ruff check office2md tests
-
-# Type checking (if mypy is installed)
-mypy office2md
 ```
-
-## Conversion Quality
-
-### DOCX Files
-
-- **Primary**: Uses [mammoth](https://github.com/mwilliamson/python-mammoth) for high-quality conversion that preserves document structure
-- **Fallback**: Uses [python-docx](https://github.com/python-openxml/python-docx) if mammoth is unavailable
-- Supports: headings, paragraphs, tables, basic formatting
-
-### XLSX Files
-
-- Uses [openpyxl](https://openpyxl.readthedocs.io/) for Excel file parsing
-- Converts sheets to Markdown tables
-- Handles multiple sheets
-- Preserves cell values (not formulas)
-
-### PPTX Files
-
-- Uses [python-pptx](https://github.com/scanny/python-pptx) for PowerPoint parsing
-- Extracts text from slides
-- Includes speaker notes (optional)
-- Handles tables in slides
-
-## Troubleshooting
-
-### ImportError for mammoth
-
-Mammoth is the recommended library for DOCX conversion. If it's not installed:
-
-```bash
-pip install mammoth
+office2md/
+├── __init__.py
+├── cli.py                      # Command-line interface
+├── converter_factory.py        # Factory for creating converters
+└── converters/
+    ├── base_converter.py       # Abstract base class
+    ├── docx_converter.py       # DOCX converter (mammoth/python-docx)
+    ├── xlsx_converter.py       # Excel converter
+    ├── pptx_converter.py       # PowerPoint converter
+    ├── pandoc_converter.py     # Pandoc-based converter
+    └── docling_converter.py    # Docling-based converter
 ```
-
-Or use the fallback:
-
-```bash
-office2md document.docx --no-mammoth
-```
-
-### Empty output for complex files
-
-Some complex formatting may not convert perfectly. Try:
-
-1. Simplifying the source document
-2. Using different converter options
-3. Reporting issues on GitHub
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
-## Acknowledgments
+## Contributing
 
-- [mammoth](https://github.com/mwilliamson/python-mammoth) - High-quality DOCX to Markdown conversion
-- [python-docx](https://github.com/python-openxml/python-docx) - DOCX file manipulation
-- [openpyxl](https://openpyxl.readthedocs.io/) - Excel file handling
-- [python-pptx](https://github.com/scanny/python-pptx) - PowerPoint file parsing
-
-## Support
-
-If you encounter any issues or have questions:
-
-- Check the [examples](examples/) directory
-- Review existing [issues](https://github.com/rodgui/office2md/issues)
-- Open a new issue with detailed information
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
